@@ -2,7 +2,11 @@
 FROM node:16
 
 # Install Python and pip
-RUN apt-get update && apt-get install -y python3 python3-pip
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Semgrep
 RUN pip3 install semgrep
@@ -19,6 +23,9 @@ COPY . .
 
 # Build the TypeScript code
 RUN npm run build
+
+# Create temp directory
+RUN mkdir -p /usr/src/app/dist/temp
 
 # Expose port (if necessary)
 EXPOSE 3000

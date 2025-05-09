@@ -11,30 +11,68 @@ app.use(express.json());
 const git = simpleGit();
 const TEMP_DIR = path.join(__dirname, "temp");
 
+// Ensure temp directory exists
+if (!fs.existsSync(TEMP_DIR)) {
+  fs.mkdirSync(TEMP_DIR, { recursive: true });
+}
+
 // Helper function to clone the GitHub repository dynamically
 async function cloneRepository(gitUrl: string): Promise<string> {
   const repoName = gitUrl.split("/").pop()?.replace(".git", "") || "repo";
   const repoPath = path.join(TEMP_DIR, repoName);
 
+  console.log(`Cloning repository to: ${repoPath}`);
+
   // Remove any previous clone of the repository
   if (fs.existsSync(repoPath)) {
+    console.log(`Removing existing directory: ${repoPath}`);
     fs.rmSync(repoPath, { recursive: true, force: true });
   }
 
-  // Clone the repository
-  await git.clone(gitUrl, repoPath);
-  return repoPath;
+  try {
+    // Clone the repository
+    console.log(`Starting clone of: ${gitUrl}`);
+    await git.clone(gitUrl, repoPath);
+    console.log(`Successfully cloned to: ${repoPath}`);
+
+    // Verify the clone
+    if (!fs.existsSync(repoPath)) {
+      throw new Error(
+        `Repository directory not found after clone: ${repoPath}`
+      );
+    }
+
+    return repoPath;
+  } catch (error: any) {
+    console.error(`Error cloning repository: ${error.message}`);
+    throw new Error(`Failed to clone repository: ${error.message}`);
+  }
 }
 
 // Helper function to run Semgrep on the cloned repository
 function runSemgrep(directory: string): Promise<string> {
   return new Promise((resolve, reject) => {
+    console.log(`Running Semgrep on directory: ${directory}`);
+
+    // Verify directory exists
+    if (!fs.existsSync(directory)) {
+      reject(`Directory does not exist: ${directory}`);
+      return;
+    }
+
+    // List contents of directory
+    const files = fs.readdirSync(directory);
+    console.log(`Directory contents: ${files.join(", ")}`);
+
     exec(
       `semgrep --config=auto ${directory} --json`,
       (error, stdout, stderr) => {
         if (error) {
+          console.error(`Semgrep error: ${error.message}`);
+          console.error(`Semgrep stderr: ${stderr}`);
           reject(`Error running Semgrep: ${stderr}`);
         } else {
+          console.log(`Semgrep output: ${stdout}`);
           resolve(stdout);
         }
       }
@@ -52,6 +90,8 @@ app.post("/analyze", async (req: Request, res: Response) => {
       .json({ error: "Please provide a gitUrl in the request body." });
   }
 
+  console.log(`Received analysis request for: ${gitUrl}`);
+
   try {
     // Step 1: Clone the repository dynamically
     const repoPath = await cloneRepository(gitUrl);
@@ -61,13 +101,18 @@ app.post("/analyze", async (req: Request, res: Response) => {
 
     // Step 3: Parse and return the vulnerabilities found
     const vulnerabilities = JSON.parse(semgrepOutput);
+    console.log(
+      `Analysis complete. Found ${vulnerabilities.results?.length || 0} results`
+    );
 
     // Send back the results
     res.json({ vulnerabilities });
 
     // Step 4: Cleanup the cloned repository
+    console.log(`Cleaning up: ${repoPath}`);
     fs.rmSync(repoPath, { recursive: true, force: true });
   } catch (error: any) {
+    console.error(`Analysis failed: ${error.message}`);
     res.status(500).json({ error: `Analysis failed: ${error.message}` });
   }
 });
@@ -76,4 +121,5 @@ app.post("/analyze", async (req: Request, res: Response) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Temporary directory: ${TEMP_DIR}`);
 });
