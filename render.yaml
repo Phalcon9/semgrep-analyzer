@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: semgrep-analyzer
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: PORT
+        value: 3000
