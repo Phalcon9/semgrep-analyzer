@@ -85,7 +85,7 @@ function runSemgrep(directory: string): Promise<string> {
 
     // Run Semgrep with built-in rules and force scanning
     exec(
-      `semgrep --config=r/javascript --config=r/typescript --config=r/react --config=r/nextjs ${directory} --json --verbose --no-git-ignore --no-ignore --max-target-bytes=100000000`,
+      `semgrep scan --config=r/javascript --config=r/typescript --config=r/react --config=r/nextjs ${directory} --json --verbose --max-target-bytes=100000000`,
       (error, stdout, stderr) => {
         if (error) {
           console.error(`Semgrep error: ${error.message}`);
