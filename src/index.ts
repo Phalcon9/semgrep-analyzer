@@ -16,6 +16,25 @@ if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
+// Helper function to recursively list all files in a directory
+function listAllFiles(dir: string, fileList: string[] = []): string[] {
+  const files = fs.readdirSync(dir);
+
+  files.forEach((file) => {
+    const filePath = path.join(dir, file);
+    if (fs.statSync(filePath).isDirectory()) {
+      // Skip .git directory
+      if (file !== ".git") {
+        fileList = listAllFiles(filePath, fileList);
+      }
+    } else {
+      fileList.push(filePath);
+    }
+  });
+
+  return fileList;
+}
+
 // Helper function to clone the GitHub repository dynamically
 async function cloneRepository(gitUrl: string): Promise<string> {
   const repoName = gitUrl.split("/").pop()?.replace(".git", "") || "repo";
@@ -60,12 +79,13 @@ function runSemgrep(directory: string): Promise<string> {
       return;
     }
 
-    // List contents of directory
-    const files = fs.readdirSync(directory);
-    console.log(`Directory contents: ${files.join(", ")}`);
+    // List all files in the repository
+    const allFiles = listAllFiles(directory);
+    console.log(`All files in repository: ${allFiles.join("\n")}`);
 
+    // Use --verbose flag and scan all files
     exec(
-      `semgrep --config=auto ${directory} --json`,
+      `semgrep --config=auto ${directory} --json --verbose --max-target-bytes=100000000`,
       (error, stdout, stderr) => {
         if (error) {
           console.error(`Semgrep error: ${error.message}`);
