@@ -83,20 +83,74 @@ function runSemgrep(directory: string): Promise<string> {
     const allFiles = listAllFiles(directory);
     console.log(`All files in repository: ${allFiles.join("\n")}`);
 
-    // Create a temporary .semgrepignore file to override defaults
-    const semgrepIgnorePath = path.join(directory, ".semgrepignore");
-    fs.writeFileSync(
-      semgrepIgnorePath,
-      "!*.ts\n!*.tsx\n!*.js\n!*.jsx\n!*.mjs\n"
-    );
+    // Create a temporary .semgrep.yml configuration file
+    const semgrepConfigPath = path.join(directory, ".semgrep.yml");
+    const config = `
+rules:
+  - id: javascript.security.require
+    pattern: |
+      $X = require('...')
+    message: "Dynamic require statement detected"
+    languages: [javascript, typescript]
+    severity: WARNING
 
-    // Use --verbose flag and scan all files, explicitly including TypeScript
+  - id: javascript.security.eval
+    pattern: |
+      eval(...)
+    message: "Use of eval() detected"
+    languages: [javascript, typescript]
+    severity: ERROR
+
+  - id: javascript.security.console
+    pattern: |
+      console.log(...)
+    message: "Console logging in production code"
+    languages: [javascript, typescript]
+    severity: WARNING
+
+  - id: javascript.security.unsafe-regex
+    pattern: |
+      new RegExp(...)
+    message: "Potentially unsafe regex construction"
+    languages: [javascript, typescript]
+    severity: WARNING
+
+  - id: javascript.security.unsafe-html
+    pattern: |
+      dangerouslySetInnerHTML={...}
+    message: "Use of dangerouslySetInnerHTML detected"
+    languages: [javascript, typescript]
+    severity: ERROR
+
+  - id: javascript.security.unsafe-url
+    pattern: |
+      window.location = ...
+    message: "Direct window.location assignment"
+    languages: [javascript, typescript]
+    severity: WARNING
+
+paths:
+  include:
+    - "**/*.js"
+    - "**/*.jsx"
+    - "**/*.ts"
+    - "**/*.tsx"
+    - "**/*.mjs"
+  exclude:
+    - "**/node_modules/**"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/.next/**"
+    `;
+    fs.writeFileSync(semgrepConfigPath, config);
+
+    // Run Semgrep with the configuration file
     exec(
-      `semgrep --config=auto ${directory} --json --verbose --max-target-bytes=100000000 --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.mjs"`,
+      `semgrep --config=${semgrepConfigPath} ${directory} --json --verbose`,
       (error, stdout, stderr) => {
-        // Clean up the temporary .semgrepignore file
-        if (fs.existsSync(semgrepIgnorePath)) {
-          fs.unlinkSync(semgrepIgnorePath);
+        // Clean up the temporary config file
+        if (fs.existsSync(semgrepConfigPath)) {
+          fs.unlinkSync(semgrepConfigPath);
         }
 
         if (error) {
