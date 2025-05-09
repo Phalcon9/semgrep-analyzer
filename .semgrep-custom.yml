@@ -1,0 +1,66 @@
+rules:
+  - id: eval-usage
+    pattern: eval(...)
+    message: Use of eval() detected
+    languages: [javascript, typescript]
+    severity: ERROR
+
+  - id: innerhtml-usage
+    pattern: dangerouslySetInnerHTML
+    message: Use of dangerouslySetInnerHTML detected
+    languages: [javascript, typescript]
+    severity: WARNING
+
+  - id: console-log
+    pattern: console.log(...)
+    message: Console logging found in code
+    languages: [javascript, typescript]
+    severity: INFO
+
+  - id: jwt-none-algorithm
+    pattern: "jwt.sign($PAYLOAD, $SECRET, {algorithm: 'none'})"
+    message: JWT signed with 'none' algorithm
+    languages: [javascript, typescript]
+    severity: CRITICAL
+
+  - id: hardcoded-credentials
+    patterns:
+      - pattern-either:
+          - pattern: "password = '...'"
+          - pattern: "apiKey = '...'"
+          - pattern: "secret = '...'"
+          - pattern: "key = '...'"
+    message: Hardcoded credentials
+    languages: [javascript, typescript]
+    severity: CRITICAL
+
+  - id: sql-injection
+    patterns:
+      - pattern-either:
+          - pattern: |
+              "SELECT ... FROM ... WHERE ... = '" + $X + "'"
+          - pattern: |
+              `SELECT ... FROM ... WHERE ... = '${$X}'`
+    message: Potential SQL injection vulnerability
+    languages: [javascript, typescript]
+    severity: CRITICAL
+
+  - id: path-traversal
+    patterns:
+      - pattern-either:
+          - pattern: fs.readFile($PATH, ...)
+          - pattern: fs.writeFile($PATH, ...)
+          - pattern: fs.readFileSync($PATH, ...)
+          - pattern: fs.writeFileSync($PATH, ...)
+    message: Potential path traversal vulnerability
+    languages: [javascript, typescript]
+    severity: WARNING
+
+paths:
+  include:
+    - "**/*.js"
+    - "**/*.jsx"
+    - "**/*.ts"
+    - "**/*.tsx"
+  exclude:
+    - "**/node_modules/**"

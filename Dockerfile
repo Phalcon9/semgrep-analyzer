@@ -14,9 +14,13 @@ RUN pip3 install semgrep
 # Create app directory
 WORKDIR /usr/src/app
 
-# Install app dependencies
+# Install app dependencies and TypeScript globally
 COPY package*.json ./
 RUN npm install
+RUN npm install -g typescript
+
+# Copy Semgrep configuration
+COPY .semgrep-custom.yml /usr/src/app/.semgrep-custom.yml
 
 # Copy the rest of the application code
 COPY . .

@@ -83,10 +83,35 @@ function runSemgrep(directory: string): Promise<string> {
     const allFiles = listAllFiles(directory);
     console.log(`All files in repository: ${allFiles.join("\n")}`);
 
-    // Run Semgrep with built-in rules and force scanning
+    // Create a simple, local rule file
+    const ruleFile = path.join(directory, "semgrep-rule.yml");
+    const ruleContent = `
+rules:
+  - id: console-log
+    pattern: console.log(...)
+    message: "Console logging in code"
+    languages: [javascript, typescript]
+    severity: WARNING
+    
+  - id: eval-usage
+    pattern: eval(...)
+    message: "Use of eval"
+    languages: [javascript, typescript]
+    severity: ERROR
+    `;
+    fs.writeFileSync(ruleFile, ruleContent);
+
+    // Run Semgrep with locally created rule
+    console.log(`Running Semgrep with custom rule: ${ruleFile}`);
+
     exec(
-      `semgrep scan --config=r/javascript --config=r/typescript --config=r/react --config=r/nextjs ${directory} --json --verbose --max-target-bytes=100000000`,
+      `cd ${directory} && semgrep scan --config=${ruleFile} . --json --verbose --disable-nosem --no-rewrite-rule-ids --timeout=0 --max-memory=0 --max-target-bytes=0`,
       (error, stdout, stderr) => {
+        // Clean up rule file
+        if (fs.existsSync(ruleFile)) {
+          fs.unlinkSync(ruleFile);
+        }
+
         if (error) {
           console.error(`Semgrep error: ${error.message}`);
           console.error(`Semgrep stderr: ${stderr}`);
