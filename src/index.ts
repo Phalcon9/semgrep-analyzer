@@ -83,10 +83,22 @@ function runSemgrep(directory: string): Promise<string> {
     const allFiles = listAllFiles(directory);
     console.log(`All files in repository: ${allFiles.join("\n")}`);
 
-    // Use --verbose flag and scan all files
+    // Create a temporary .semgrepignore file to override defaults
+    const semgrepIgnorePath = path.join(directory, ".semgrepignore");
+    fs.writeFileSync(
+      semgrepIgnorePath,
+      "!*.ts\n!*.tsx\n!*.js\n!*.jsx\n!*.mjs\n"
+    );
+
+    // Use --verbose flag and scan all files, explicitly including TypeScript
     exec(
-      `semgrep --config=auto ${directory} --json --verbose --max-target-bytes=100000000`,
+      `semgrep --config=auto ${directory} --json --verbose --max-target-bytes=100000000 --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.mjs"`,
       (error, stdout, stderr) => {
+        // Clean up the temporary .semgrepignore file
+        if (fs.existsSync(semgrepIgnorePath)) {
+          fs.unlinkSync(semgrepIgnorePath);
+        }
+
         if (error) {
           console.error(`Semgrep error: ${error.message}`);
           console.error(`Semgrep stderr: ${stderr}`);
