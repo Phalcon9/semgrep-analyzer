@@ -83,76 +83,10 @@ function runSemgrep(directory: string): Promise<string> {
     const allFiles = listAllFiles(directory);
     console.log(`All files in repository: ${allFiles.join("\n")}`);
 
-    // Create a temporary .semgrep.yml configuration file
-    const semgrepConfigPath = path.join(directory, ".semgrep.yml");
-    const config = `
-rules:
-  - id: javascript.security.require
-    pattern: |
-      $X = require('...')
-    message: "Dynamic require statement detected"
-    languages: [javascript, typescript]
-    severity: WARNING
-
-  - id: javascript.security.eval
-    pattern: |
-      eval(...)
-    message: "Use of eval() detected"
-    languages: [javascript, typescript]
-    severity: ERROR
-
-  - id: javascript.security.console
-    pattern: |
-      console.log(...)
-    message: "Console logging in production code"
-    languages: [javascript, typescript]
-    severity: WARNING
-
-  - id: javascript.security.unsafe-regex
-    pattern: |
-      new RegExp(...)
-    message: "Potentially unsafe regex construction"
-    languages: [javascript, typescript]
-    severity: WARNING
-
-  - id: javascript.security.unsafe-html
-    pattern: |
-      dangerouslySetInnerHTML={...}
-    message: "Use of dangerouslySetInnerHTML detected"
-    languages: [javascript, typescript]
-    severity: ERROR
-
-  - id: javascript.security.unsafe-url
-    pattern: |
-      window.location = ...
-    message: "Direct window.location assignment"
-    languages: [javascript, typescript]
-    severity: WARNING
-
-paths:
-  include:
-    - "**/*.js"
-    - "**/*.jsx"
-    - "**/*.ts"
-    - "**/*.tsx"
-    - "**/*.mjs"
-  exclude:
-    - "**/node_modules/**"
-    - "**/dist/**"
-    - "**/build/**"
-    - "**/.next/**"
-    `;
-    fs.writeFileSync(semgrepConfigPath, config);
-
-    // Run Semgrep with the configuration file
+    // Run Semgrep with built-in rules and force scanning
     exec(
-      `semgrep --config=${semgrepConfigPath} ${directory} --json --verbose`,
+      `semgrep --config=r/javascript --config=r/typescript --config=r/react --config=r/nextjs ${directory} --json --verbose --no-git-ignore --no-ignore --max-target-bytes=100000000`,
       (error, stdout, stderr) => {
-        // Clean up the temporary config file
-        if (fs.existsSync(semgrepConfigPath)) {
-          fs.unlinkSync(semgrepConfigPath);
-        }
-
         if (error) {
           console.error(`Semgrep error: ${error.message}`);
           console.error(`Semgrep stderr: ${stderr}`);
