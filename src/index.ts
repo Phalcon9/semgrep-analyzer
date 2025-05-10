@@ -3,10 +3,17 @@ import { exec } from "child_process";
 import path from "path";
 import fs from "fs";
 import simpleGit from "simple-git";
+import cors from 'cors';
 
 // Initialize the Express app
 const app = express();
 app.use(express.json());
+
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 const git = simpleGit();
 const TEMP_DIR = path.join(__dirname, "temp");
