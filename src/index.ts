@@ -10,7 +10,7 @@ const app = express();
 app.use(express.json());
 
 app.use(cors({
-  origin: '*',
+  origin: '*', // Consider restricting this in production
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
@@ -88,43 +88,68 @@ function runSemgrep(directory: string): Promise<string> {
 
     // List all files in the repository
     const allFiles = listAllFiles(directory);
-    console.log(`All files in repository: ${allFiles.join("\n")}`);
+    console.log(`Found ${allFiles.length} files in repository`);
 
-    // Create a simple, local rule file
-    const ruleFile = path.join(directory, "semgrep-rule.yml");
-    const ruleContent = `
+    // Run Semgrep with OWASP Top 10 ruleset directly from the registry
+    console.log(`Running Semgrep with OWASP Top 10 ruleset`);
+
+    // Command using registry ruleset for OWASP Top 10
+    exec(
+      `cd ${directory} && semgrep scan --config=p/owasp-top-ten . --json --verbose --disable-nosem --no-rewrite-rule-ids --timeout=0 --max-memory=0 --max-target-bytes=0`,
+      { maxBuffer: 10 * 1024 * 1024 }, // Increase buffer size for large outputs
+      (error, stdout, stderr) => {
+        if (error && error.code !== 1) { // Semgrep returns 1 when it finds issues, but that's not a failure
+          console.error(`Semgrep error: ${error.message}`);
+          console.error(`Semgrep stderr: ${stderr}`);
+          reject(`Error running Semgrep: ${stderr}`);
+        } else {
+          console.log(`Semgrep scan completed`);
+          resolve(stdout);
+        }
+      }
+    );
+  });
+}
+
+// Add an option to use both standard and OWASP rules
+function runSemgrepWithMultipleRulesets(directory: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    console.log(`Running Semgrep with multiple rulesets on directory: ${directory}`);
+
+    // Verify directory exists
+    if (!fs.existsSync(directory)) {
+      reject(`Directory does not exist: ${directory}`);
+      return;
+    }
+
+    // Add a custom ruleset for checks not covered in OWASP
+    const ruleFile = path.join(directory, "custom-rules.yml");
+    const customRuleContent = `
 rules:
-  - id: console-log
+  - id: custom-console-log
     pattern: console.log(...)
     message: "Console logging in code"
     languages: [javascript, typescript]
-    severity: WARNING
-    
-  - id: eval-usage
-    pattern: eval(...)
-    message: "Use of eval"
-    languages: [javascript, typescript]
-    severity: ERROR
+    severity: INFO
     `;
-    fs.writeFileSync(ruleFile, ruleContent);
+    fs.writeFileSync(ruleFile, customRuleContent);
 
-    // Run Semgrep with locally created rule
-    console.log(`Running Semgrep with custom rule: ${ruleFile}`);
-
+    // Command to run with both OWASP and language-specific rulesets
     exec(
-      `cd ${directory} && semgrep scan --config=${ruleFile} . --json --verbose --disable-nosem --no-rewrite-rule-ids --timeout=0 --max-memory=0 --max-target-bytes=0`,
+      `cd ${directory} && semgrep scan --config=p/owasp-top-ten,p/javascript,p/typescript,p/nodejs,${ruleFile} . --json --verbose --disable-nosem --no-rewrite-rule-ids --timeout=0 --max-memory=0 --max-target-bytes=0`,
+      { maxBuffer: 10 * 1024 * 1024 }, // Increased buffer size
       (error, stdout, stderr) => {
         // Clean up rule file
         if (fs.existsSync(ruleFile)) {
           fs.unlinkSync(ruleFile);
         }
 
-        if (error) {
+        if (error && error.code !== 1) { // Semgrep returns 1 when it finds issues
           console.error(`Semgrep error: ${error.message}`);
           console.error(`Semgrep stderr: ${stderr}`);
           reject(`Error running Semgrep: ${stderr}`);
         } else {
-          console.log(`Semgrep output: ${stdout}`);
+          console.log(`Semgrep scan completed`);
           resolve(stdout);
         }
       }
@@ -134,7 +159,7 @@ rules:
 
 // POST /analyze: Endpoint to receive a GitHub repository URL for analysis
 app.post("/analyze", async (req: Request, res: Response) => {
-  const { gitUrl } = req.body;
+  const { gitUrl, ruleType = "owasp" } = req.body;
 
   if (!gitUrl) {
     return res
@@ -142,14 +167,21 @@ app.post("/analyze", async (req: Request, res: Response) => {
       .json({ error: "Please provide a gitUrl in the request body." });
   }
 
-  console.log(`Received analysis request for: ${gitUrl}`);
+  console.log(`Received analysis request for: ${gitUrl} with ruleType: ${ruleType}`);
 
   try {
     // Step 1: Clone the repository dynamically
     const repoPath = await cloneRepository(gitUrl);
 
-    // Step 2: Run Semgrep on the cloned codebase
-    const semgrepOutput = await runSemgrep(repoPath);
+    // Step 2: Run Semgrep with appropriate ruleset
+    let semgrepOutput;
+    if (ruleType === "owasp") {
+      semgrepOutput = await runSemgrep(repoPath);
+    } else if (ruleType === "comprehensive") {
+      semgrepOutput = await runSemgrepWithMultipleRulesets(repoPath);
+    } else {
+      throw new Error("Invalid ruleType. Use 'owasp' or 'comprehensive'");
+    }
 
     // Step 3: Parse and return the vulnerabilities found
     const vulnerabilities = JSON.parse(semgrepOutput);
@@ -157,8 +189,24 @@ app.post("/analyze", async (req: Request, res: Response) => {
       `Analysis complete. Found ${vulnerabilities.results?.length || 0} results`
     );
 
-    // Send back the results
-    res.json({ vulnerabilities });
+    // Add OWASP category mapping for better understanding
+    const enhancedResults = vulnerabilities.results?.map((result: any) => {
+      // Extract OWASP category from rule ID if available
+      const owaspMatch = result.check_id.match(/owasp\-(.*?)\-/);
+      if (owaspMatch && owaspMatch[1]) {
+        const category = owaspMatch[1].toUpperCase();
+        result.owasp_category = `A${category}:2017`;
+      }
+      return result;
+    });
+
+    // Send back the results with OWASP mapping
+    res.json({ 
+      vulnerabilities: {
+        ...vulnerabilities,
+        results: enhancedResults || vulnerabilities.results
+      } 
+    });
 
     // Step 4: Cleanup the cloned repository
     console.log(`Cleaning up: ${repoPath}`);
@@ -167,6 +215,24 @@ app.post("/analyze", async (req: Request, res: Response) => {
     console.error(`Analysis failed: ${error.message}`);
     res.status(500).json({ error: `Analysis failed: ${error.message}` });
   }
+});
+
+// GET /rules: Endpoint to list available rulesets
+app.get("/rules", (req: Request, res: Response) => {
+  res.json({
+    availableRuleTypes: [
+      {
+        id: "owasp",
+        name: "OWASP Top 10",
+        description: "Scans for OWASP Top 10 vulnerabilities"
+      },
+      {
+        id: "comprehensive",
+        name: "Comprehensive Scan",
+        description: "Includes OWASP Top 10, language-specific rules, and custom checks"
+      }
+    ]
+  });
 });
 
 // Start the server
