@@ -1,9 +1,22 @@
 services:
   - type: web
-    name: semgrep-analyzer
+    name: semgrep-scanner
     env: docker
     dockerfilePath: ./Dockerfile
-    plan: free
+    healthCheckPath: /health
+    buildCommand: npm run build
+    # Configure appropriate environment variables
     envVars:
-      - key: PORT
-        value: 3000
+      - key: NODE_ENV
+        value: production
+      - key: SEMGREP_TIMEOUT
+        value: 0
+      - key: SEMGREP_MAX_MEMORY
+        value: 0
+      - key: SEMGREP_ENABLE_VERSION_CHECK
+        value: 0
+    # Add disk space for cloning repos
+    disk:
+      name: repo-storage
+      mountPath: /usr/src/app/dist/temp
+      sizeGB: 5
