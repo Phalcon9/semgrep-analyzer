@@ -25,8 +25,9 @@ WORKDIR /usr/src/app
 # Copy package files
 COPY package*.json ./
 
-# Install production dependencies only
-RUN npm ci --only=production
+# Install TypeScript and other dev dependencies needed for build
+RUN npm install typescript @types/node -g && \
+    npm ci
 
 # Copy source code and configuration
 COPY . .
@@ -41,6 +42,9 @@ RUN mkdir -p dist/temp && \
 # Ensure semgrep config is copied and has correct permissions
 COPY .semgrep-custom.yml /usr/src/app/.semgrep-custom.yml
 RUN chmod 644 /usr/src/app/.semgrep-custom.yml
+
+# Clean up dev dependencies if needed
+RUN npm prune --production
 
 # Set production environment
 ENV NODE_ENV=production
