@@ -1,49 +1,49 @@
-# Dockerfile optimized for Render deployment
-FROM node:16-slim
+FROM python:3.11-slim
 
-# Install Python, pip and other dependencies
-RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
+# Install system dependencies and cleanup in one layer
+RUN apt-get update && \
+    apt-get install -y \
     git \
-    ca-certificates \
     curl \
-    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Semgrep with specific version to ensure compatibility
-RUN pip3 install semgrep==1.29.0
+# Create and activate virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Create app directory
+# Install semgrep in virtual environment
+RUN pip install --no-cache-dir semgrep==1.121.0
+
+# Install Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set working directory
 WORKDIR /usr/src/app
 
-# Copy package files first (for better caching)
+# Copy package files
 COPY package*.json ./
-RUN npm install
-RUN npm install -g typescript
 
-# Create log directory with permissions
-RUN mkdir -p /usr/src/app/logs && chmod 777 /usr/src/app/logs
+# Install production dependencies only
+RUN npm ci --only=production
 
-# Copy the semgrep configuration first (separate step for caching)
-COPY .semgrep-custom.yml /usr/src/app/.semgrep-custom.yml
-
-# Copy the rest of the application code
+# Copy source code and configuration
 COPY . .
 
-# Build the TypeScript code
+# Build TypeScript
 RUN npm run build
 
 # Create temp directory with proper permissions
-RUN mkdir -p /usr/src/app/dist/temp && chmod 777 /usr/src/app/dist/temp
+RUN mkdir -p dist/temp && \
+    chmod -R 777 dist/temp
 
-# Expose port
-EXPOSE 3000
+# Ensure semgrep config is copied and has correct permissions
+COPY .semgrep-custom.yml /usr/src/app/.semgrep-custom.yml
+RUN chmod 644 /usr/src/app/.semgrep-custom.yml
 
-# Set environment variables for Semgrep
-ENV SEMGREP_TIMEOUT=0
-ENV SEMGREP_MAX_MEMORY=0
-ENV SEMGREP_ENABLE_VERSION_CHECK=0
+# Set production environment
+ENV NODE_ENV=production
 
-# Start the compiled JavaScript app
-CMD ["node", "dist/index.js"]
+# Set the command to run the application
+CMD ["npm", "start"]

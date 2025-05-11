@@ -5,18 +5,30 @@ services:
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     buildCommand: npm run build
-    # Configure appropriate environment variables
     envVars:
       - key: NODE_ENV
         value: production
       - key: SEMGREP_TIMEOUT
-        value: 0
-      - key: SEMGREP_MAX_MEMORY
-        value: 0
-      - key: SEMGREP_ENABLE_VERSION_CHECK
-        value: 0
-    # Add disk space for cloning repos
+        value: 300000 # 5 minutes in milliseconds
+      - key: MAX_BUFFER
+        value: 10485760 # 10MB in bytes
+      - key: SEMGREP_ARGS
+        value: "--metrics=off --timeout 300"
+      - key: TEMP_DIR
+        value: /usr/src/app/dist/temp
+      - key: ALLOWED_ORIGINS
+        # value: "https://*.onrender.com,https://yourdomain.com" # Replace with your actual domains
+      # Optional: Add your own environment variables here
     disk:
       name: repo-storage
       mountPath: /usr/src/app/dist/temp
-      sizeGB: 5
+      sizeGB: 10 # Increased for larger repositories
+    autoDeploy: true # Enable automatic deployments
+    numInstances: 1 # Start with 1 instance, scale as needed
+    healthCheckTimeout: 300 # Match our Semgrep timeout
+    # Add resource limits
+    scaling:
+      minInstances: 1
+      maxInstances: 1 # Adjust based on your needs
+      targetMemoryPercent: 80
+      targetCPUPercent: 80

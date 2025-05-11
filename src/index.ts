@@ -3,17 +3,19 @@ import { exec } from "child_process";
 import path from "path";
 import fs from "fs";
 import simpleGit from "simple-git";
-import cors from 'cors';
+import cors from "cors";
 
 // Initialize the Express app
 const app = express();
-app.use(express.json({ limit: '10mb' })); // Increase JSON payload limit
+app.use(express.json({ limit: "10mb" })); // Increase JSON payload limit
 
-app.use(cors({
-  origin: '*', // Consider restricting this in production
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(
+  cors({
+    origin: "*", // Consider restricting this in production
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
 const git = simpleGit();
 const TEMP_DIR = path.join(__dirname, "temp");
@@ -126,158 +128,65 @@ function runSemgrep(directory: string): Promise<string> {
 
     // Verify directory exists
     if (!fs.existsSync(directory)) {
-      reject(`Directory does not exist: ${directory}`);
+      const error = `Directory does not exist: ${directory}`;
+      console.error(error);
+      reject(new Error(error));
       return;
     }
 
-    // Create a simple test rule to verify semgrep works
-    const testRuleFile = path.join(directory, "test-rule.yml");
-    const testRuleContent = `
-rules:
-  - id: test-rule
-    pattern: console.log(...)
-    message: "Test rule successful"
-    languages: [javascript, typescript]
-    severity: INFO
-    `;
-    
-    try {
-      fs.writeFileSync(testRuleFile, testRuleContent);
-      console.log(`Created test rule file: ${testRuleFile}`);
-    } catch (error) {
-      console.error(`Error creating test rule file: ${error}`);
-      reject(`Error creating test rule file: ${error}`);
+    // Use the custom config from project root
+    const semgrepConfigPath = path.join(process.cwd(), ".semgrep-custom.yml");
+
+    if (!fs.existsSync(semgrepConfigPath)) {
+      const error = `Semgrep configuration not found at: ${semgrepConfigPath}`;
+      console.error(error);
+      reject(new Error(error));
       return;
     }
 
-    // First try with a simple test to see if Semgrep works
-    console.log(`Testing Semgrep with simple rule...`);
+    // Validate semgrep config
+    console.log(`Validating semgrep config at: ${semgrepConfigPath}`);
     exec(
-      `cd ${directory} && semgrep scan --config=${testRuleFile} . --json`,
-      { maxBuffer: 10 * 1024 * 1024 }, // 10MB buffer
-      (error, stdout, stderr) => {
-        try {
-          if (fs.existsSync(testRuleFile)) {
-            fs.unlinkSync(testRuleFile);
-          }
-        } catch (fsError) {
-          console.error(`Error cleaning up test rule file: ${fsError}`);
+      `semgrep --validate --config "${semgrepConfigPath}"`,
+      (validationError) => {
+        if (validationError) {
+          const error = `Invalid Semgrep configuration: ${validationError.message}`;
+          console.error(error);
+          reject(new Error(error));
+          return;
         }
 
-        if ((error && error.code !== 1) || stderr.includes("Fatal") || stderr.includes("Error")) {
-          console.error(`Semgrep test failed: ${stderr}`);
-          console.error(`Using direct rule file instead of registry...`);
-          
-          // Fall back to custom ruleset
-          const customRuleFile = path.join(directory, "custom-rules.yml");
-          const customRuleContent = `
-rules:
-  - id: a1-sql-injection
-    patterns:
-      - pattern-either:
-          - pattern: |
-              "SELECT ... FROM ... WHERE ... = '" + $X + "'"
-          - pattern: |
-              \`SELECT ... FROM ... WHERE ... = '\${$X}'\`
-    message: "OWASP A1:2017 - Injection: Potential SQL injection vulnerability"
-    languages: [javascript, typescript]
-    severity: CRITICAL
-          
-  - id: a7-xss
-    patterns:
-      - pattern-either:
-          - pattern: |
-              $ELEMENT.innerHTML = ...
-    message: "OWASP A7:2017 - XSS: Direct assignment to innerHTML"
-    languages: [javascript, typescript]
-    severity: WARNING
-          
-  - id: a6-eval-usage
-    pattern: eval(...)
-    message: "OWASP A6:2017 - Security Misconfiguration: Use of eval() detected"
-    languages: [javascript, typescript]
-    severity: ERROR
-          
-  - id: debug-console-log
-    pattern: console.log(...)
-    message: "Debug: Console logging found in code"
-    languages: [javascript, typescript]
-    severity: INFO
-          `;
-          
-          try {
-            fs.writeFileSync(customRuleFile, customRuleContent);
-            console.log(`Created custom rule file: ${customRuleFile}`);
-          } catch (error) {
-            console.error(`Error creating custom rule file: ${error}`);
-            reject(`Error creating custom rule file: ${error}`);
-            return;
-          }
-          
-          // Run with the custom ruleset
-          exec(
-            `cd ${directory} && semgrep scan --config=${customRuleFile} . --json`,
-            { maxBuffer: 10 * 1024 * 1024 },
-            (fallbackError, fallbackStdout, fallbackStderr) => {
-              try {
-                if (fs.existsSync(customRuleFile)) {
-                  fs.unlinkSync(customRuleFile);
-                }
-              } catch (fsError) {
-                console.error(`Error cleaning up custom rule file: ${fsError}`);
-              }
-              
-              if (fallbackError && fallbackError.code !== 1) {
-                console.error(`Semgrep fallback execution error: ${fallbackError.message}`);
-                console.error(`Semgrep fallback stderr: ${fallbackStderr}`);
-                reject(`Error running Semgrep with custom rules: ${fallbackStderr}`);
+        console.log("Semgrep configuration is valid");
+        const semgrepCommand = `cd "${directory}" && semgrep scan --config "${semgrepConfigPath}" --verbose --json .`;
+
+        exec(
+          semgrepCommand,
+          {
+            maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+            timeout: 300000, // 5 minutes timeout
+          },
+          (error, stdout, stderr) => {
+            // Attempt to parse the output as JSON regardless of exit code
+            try {
+              const results = JSON.parse(stdout);
+
+              // Check if we have valid results
+              if (results && (results.results || results.errors)) {
+                console.log(`Found ${results.results?.length || 0} results`);
+                resolve(stdout);
               } else {
-                console.log(`Semgrep fallback scan completed`);
-                resolve(fallbackStdout);
+                reject(new Error("Invalid Semgrep output format"));
               }
+            } catch (parseError) {
+              console.error(`Error parsing Semgrep output: ${parseError}`);
+              console.error(`Stdout: ${stdout}`);
+              console.error(`Stderr: ${stderr}`);
+              reject(
+                new Error(`Failed to parse Semgrep output: ${parseError}`)
+              );
             }
-          );
-        } else {
-          console.log(`Semgrep test successful, running with registry rules...`);
-          
-          // First test passed, now try with registry ruleset
-          try {
-            // Check if .semgrep-custom.yml exists in the project root
-            const semgrepConfigPath = path.join(process.cwd(), ".semgrep-custom.yml");
-            console.log(`Looking for semgrep config at: ${semgrepConfigPath}`);
-            
-            let semgrepCommand;
-            if (fs.existsSync(semgrepConfigPath)) {
-              console.log(`Using local semgrep config: ${semgrepConfigPath}`);
-              semgrepCommand = `cd ${directory} && semgrep scan --config=${semgrepConfigPath} . --json`;
-            } else {
-              console.log(`No local config found, using registry rules`);
-              semgrepCommand = `cd ${directory} && semgrep scan --config=p/javascript . --json`;
-            }
-            
-            console.log(`Executing: ${semgrepCommand}`);
-            exec(
-              semgrepCommand,
-              { maxBuffer: 10 * 1024 * 1024 },
-              (registryError, registryStdout, registryStderr) => {
-                if (registryError && registryError.code !== 1) {
-                  console.error(`Semgrep registry error: ${registryError.message}`);
-                  console.error(`Semgrep registry stderr: ${registryStderr}`);
-                  // If registry scan fails, return the test scan results at minimum
-                  console.log(`Falling back to test scan results`);
-                  resolve(stdout);
-                } else {
-                  console.log(`Semgrep registry scan completed`);
-                  resolve(registryStdout);
-                }
-              }
-            );
-          } catch (execError) {
-            console.error(`Error executing registry scan: ${execError}`);
-            // If there's an error with registry scan, return test scan results
-            resolve(stdout);
           }
-        }
+        );
       }
     );
   });
@@ -286,7 +195,7 @@ rules:
 // POST /analyze: Endpoint to receive a GitHub repository URL for analysis
 app.post("/analyze", async (req: Request, res: Response) => {
   console.log("Received analyze request");
-  
+
   const { gitUrl } = req.body;
 
   if (!gitUrl) {
@@ -313,14 +222,16 @@ app.post("/analyze", async (req: Request, res: Response) => {
     try {
       vulnerabilities = JSON.parse(semgrepOutput);
       console.log(
-        `Analysis complete. Found ${vulnerabilities.results?.length || 0} results`
+        `Analysis complete. Found ${
+          vulnerabilities.results?.length || 0
+        } results`
       );
     } catch (parseError) {
       console.error(`Error parsing Semgrep output: ${parseError}`);
       console.error(`Raw output: ${semgrepOutput}`);
-      vulnerabilities = { 
+      vulnerabilities = {
         error: "Failed to parse Semgrep output",
-        results: [] 
+        results: [],
       };
     }
 
@@ -343,12 +254,12 @@ app.post("/analyze", async (req: Request, res: Response) => {
 
 // GET /health: Health check endpoint
 app.get("/health", (req: Request, res: Response) => {
-  res.json({ 
+  res.json({
     status: "healthy",
     checks: {
       tempDir: fs.existsSync(TEMP_DIR),
       semgrep: true, // We'll assume it's available; the actual check happens at startup
-    }
+    },
   });
 });
 
@@ -360,8 +271,8 @@ app.listen(PORT, () => {
 });
 
 // Handle graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received, shutting down gracefully");
   // Clean up temp directory
   if (fs.existsSync(TEMP_DIR)) {
     try {
